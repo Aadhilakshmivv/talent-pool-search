@@ -12,7 +12,7 @@ app = Flask(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(
-    api_key="GEMINI_API_KEY"
+    api_key=GEMINI_API_KEY
 )
 
 UPLOAD_FOLDER = "uploads"
