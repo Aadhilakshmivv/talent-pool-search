@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Talent Pool Search</title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f4f6f9;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        input, button {
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .candidate-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+
+        .profile-btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 15px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+
+        .profile-btn:hover {
+            background: #0056b3;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="card">
+
+        <h1>Talent Pool Search</h1>
+
+        <p>
+            AI-powered resume search and candidate management
+        </p>
+
+    </div>
+
+    <div class="card">
+
+        <h2>Upload Resumes</h2>
+
+        <form
+    id="uploadForm"
+    action="/upload"
+    method="POST"
+    enctype="multipart/form-data">
+
+    <input
+        type="file"
+        name="resumes"
+        multiple
+        accept=".pdf,.doc,.docx">
+
+    <br><br>
+
+    <button type="submit"
+    id="uploadBtn">
+    Upload Resumes
+    </button>
+
+    <p
+        id="loadingText"
+        style="display:none; color:blue; font-weight:bold;">
+        Processing resumes... Please wait.
+    </p>
+
+</form>
+
+    </div>
+
+    <div class="card">
+
+        <h2>Search Candidates</h2>
+
+        <form action="/search" method="GET">
+
+            <div class="search-box">
+
+                <input
+                    type="text"
+                    name="skill"
+                    placeholder="Skill">
+
+                <input
+                    type="text"
+                    name="location"
+                    placeholder="Location">
+
+                <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    name="experience"
+                    placeholder="Min Experience">
+
+                <button type="submit">
+                    Search
+                </button>
+
+                
+            </div>
+
+        </form>
+
+    </div>
+
+    <div class="card">
+
+        <h2>All Candidates</h2>
+
+        {% if candidates %}
+
+            {% for candidate in candidates %}
+
+            <div class="candidate-card">
+
+                <h3>{{ candidate[1] }}</h3>
+                <p>
+                    <b>Job Title:</b>
+                    {{candidate[8]}}
+                </p>
+
+                <p>
+                    <b>File:</b>
+                    {{ candidate[5] }}
+                </p>
+
+                <p>
+                    <b>Experience:</b>
+                    {{ candidate[7] }}
+                </p>
+
+                <p>
+                    <b>Location:</b>
+                    {{ candidate[9] }}
+                </p>
+
+                <a
+                    class="profile-btn"
+                    href="/profile/{{ candidate[0] }}">
+                    View Profile
+                </a>
+
+            </div>
+
+            {% endfor %}
+
+        {% else %}
+
+            <p>No candidates found.</p>
+
+        {% endif %}
+
+    </div>
+
+</div>
+<script>
+
+window.onload = function() {
+
+    document.getElementById("uploadForm").addEventListener(
+        "submit",
+        function() {
+
+            document.getElementById("loadingText").style.display = "block";
+
+            document.getElementById("uploadBtn").disabled = true;
+
+            document.getElementById("uploadBtn").innerText = "Processing...";
+        }
+    );
+
+};
+
+</script>
+</body>
+</html>
