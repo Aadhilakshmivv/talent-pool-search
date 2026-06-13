@@ -1,6 +1,9 @@
+.env
 venv/
 __pycache__/
-uploads/
+*.pyc
+
+candidates.db
+candidates_backup.db
 generated_resumes/
-generated_resumes_v2/
-*.db
+uploads/

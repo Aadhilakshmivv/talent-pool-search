@@ -10,7 +10,9 @@ from flask import redirect
 
 app = Flask(__name__)
 
-genai.configure(api_key="YOUR_GEMINI_API_KEY")
+genai.configure(
+    api_key="GEMINI_API_KEY"
+)
 
 UPLOAD_FOLDER = "uploads"
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -18,6 +20,8 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 @app.route("/")
 def home():
+
+    message = request.args.get("message", "")
 
     conn = sqlite3.connect("candidates.db")
     cursor = conn.cursor()
@@ -50,7 +54,8 @@ def home():
 
     return render_template(
         "index.html",
-        candidates=candidates
+        candidates=candidates,
+        message=message
     )
 
 
@@ -58,6 +63,7 @@ def home():
 def upload():
 
     files = request.files.getlist("resumes")
+    success_count = 0
 
     if not files or files[0].filename == "":
         return "No file selected!"
@@ -177,80 +183,96 @@ Resume:
 
 {scrubbed_text}
 """
+        response = None
 
         try:
             response = model.generate_content(prompt)
 
         except Exception as e:
             print("GEMINI ERROR:", e)
-            continue
+            
+            skills = "Not Available"
+            experience = "0"
+            job_title = "Not Available"
+            location = "Not Available"
 
-        print("\nAI ANALYSIS")
-        print(response.text)
+        if response:
+            print("\nAI ANALYSIS")
+            print(response.text)
 
-        skills = ""
-        experience = ""
-        job_title = ""
-        location = ""
+            skills = ""
+            experience = ""
+            job_title = ""
+            location = ""
 
-        for line in response.text.split("\n"):
+            for line in response.text.split("\n"):
 
-            if line.startswith("SKILLS:"):
-                skills = line.replace(
-                    "SKILLS:",
-                    ""
-                ).strip()
+                if line.startswith("SKILLS:"):
+                    skills = line.replace(
+                        "SKILLS:",
+                        ""
+                    ).strip()
 
-            elif line.startswith("EXPERIENCE:"):
-                experience = line.replace(
-                    "EXPERIENCE:",
-                    ""
-                ).strip()
+                elif line.startswith("EXPERIENCE:"):
+                    experience = line.replace(
+                        "EXPERIENCE:",
+                        ""
+                    ).strip()
 
-            elif line.startswith("JOB_TITLE:"):
-                job_title = line.replace(
-                    "JOB_TITLE:",
-                    ""
-                ).strip()
+                elif line.startswith("JOB_TITLE:"):
+                    job_title = line.replace(
+                        "JOB_TITLE:",
+                        ""
+                    ).strip()
 
-            elif line.startswith("LOCATION:"):
-                location = line.replace(
-                    "LOCATION:",
-                    ""
-                ).strip()
+                elif line.startswith("LOCATION:"):
+                    location = line.replace(
+                        "LOCATION:",
+                        ""
+                    ).strip()
 
         save_candidate(
-            name,
-            email,
-            phone,
-            linkedin,
-            file.filename,
-            skills,
-            experience,
-            job_title,
-            location
+                name,
+                email,
+                phone,
+                linkedin,
+                file.filename,
+                skills,
+                experience,
+                job_title,
+                location
         )
 
-        print("Saved structured data to database!")
+        success_count += 1
+    print("SUCCESS COUNT =", success_count)
+
+    print("Saved structured data to database!")    
 
             
 
-        print("\n" + "=" * 50)
-        print(f"FILE: {file.filename}")
-        print("=" * 50)
+    print("\n" + "=" * 50)
+    print(f"FILE: {file.filename}")
+    print("=" * 50)
     print(text[:1000])
     print("=" * 50)
 
-    return redirect("/")
+    if success_count == 1:
+        return redirect("/?message=1 resume processed successfully")
 
+    return redirect(f"/?message={success_count} resumes processed successfully")
 
 @app.route("/search")
 def search():
 
     skill = request.args.get("skill", "")
     location = request.args.get("location", "")
-    min_experience = request.args.get("experience", "0")
-    print("MIN EXPERIENCE =",min_experience)
+
+    min_experience = request.args.get("experience", "")
+
+    if min_experience == "":
+        min_experience = "0"
+
+    print("MIN EXPERIENCE =", min_experience)
 
     conn = sqlite3.connect("candidates.db")
     cursor = conn.cursor()
@@ -266,7 +288,9 @@ def search():
     ))
 
     results = cursor.fetchall()
-
+    print("SEARCH SKILL =", skill)
+    print("SEARCH LOCATION =", location)
+    print("RESULTS =", results)
     filtered_results = []
 
     for row in results:
@@ -276,8 +300,8 @@ def search():
             if candidate_experience >= float(min_experience):
                 filtered_results.append(row)
 
-        except:
-            pass
+        except Exception as e:
+            print("ERROR =", e)
 
     conn.close()
 

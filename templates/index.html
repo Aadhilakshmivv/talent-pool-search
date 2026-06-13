@@ -87,6 +87,20 @@
 
         <h2>Upload Resumes</h2>
 
+        {% if message %}
+        <div
+            id="successMessage"
+            style="
+            background:#d4edda;
+            color:#155724;
+            padding:12px;
+            border-radius:8px;
+            margin-bottom:15px;
+        ">
+            ✓ {{ message }}
+        </div>
+        {% endif %}
+
         <form
     id="uploadForm"
     action="/upload"
@@ -217,6 +231,17 @@ window.onload = function() {
             document.getElementById("uploadBtn").innerText = "Processing...";
         }
     );
+    let msg = document.getElementById("successMessage");
+
+    if (msg) {
+
+        setTimeout(function() {
+
+            msg.style.display = "none";
+
+        }, 4000);
+
+    }
 
 };
 
