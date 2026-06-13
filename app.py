@@ -17,7 +17,7 @@ genai.configure(
 
 UPLOAD_FOLDER = "uploads"
 import os
-os.makedirs(UPLOAD_FOLDER, exiSt_ok=True)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 
