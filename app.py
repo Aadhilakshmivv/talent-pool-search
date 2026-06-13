@@ -233,7 +233,10 @@ Resume:
                         "LOCATION:",
                         ""
                     ).strip()
-
+        print("JOB =", job_title)
+        print("LOC =", location)
+        print("EXP =", experience)
+        print("SKILLS =", skills)
         save_candidate(
                 name,
                 email,
