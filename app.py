@@ -11,11 +11,13 @@ from flask import redirect
 app = Flask(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key="GEMINI_API_KEY")
+genai.configure(
+    api_key="GEMINI_API_KEY"
+)
 
 UPLOAD_FOLDER = "uploads"
 import os
-os.makedirs(UPLOAD_FOLDER, exit_ok=True)
+os.makedirs(UPLOAD_FOLDER, exiSt_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 
