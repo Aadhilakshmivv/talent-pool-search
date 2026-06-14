@@ -4,15 +4,18 @@ import os
 import re
 from pypdf import PdfReader
 from docx import Document
-import google.generativeai as genai
+from dotenv import load_dotenv
+from groq import Groq
 from database import save_candidate
 from flask import redirect
 
+
 app = Flask(__name__)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(
-    api_key=GEMINI_API_KEY
+load_dotenv()
+
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
 )
 
 UPLOAD_FOLDER = "uploads"
@@ -170,7 +173,6 @@ def upload():
         print("\nSCRUBBED TEXT")
         print(scrubbed_text[:500])
 
-        model = genai.GenerativeModel("gemini-2.5-flash")
 
         prompt = f"""
 Analyze this resume.
@@ -196,35 +198,39 @@ Resume:
         for attempt in range(3):
 
             try:
-                print("CALLING GEMINI FOR:", file.filename)
-                response = model.generate_content(prompt)
-                print("GEMINI SUCCESS:",file.filename)
+
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                )
 
                 break
 
             except Exception as e:
 
-                print("GEMINI ERROR:", e)
+                print("GROQ ERROR:", e)
 
-                if "429" in str(e):
+                break
 
-                    print("GEMINI QUOTA EXCEEDED")
-                    break
-
-                else:
-
-                    break
+    
 
         if response:
             print("\nAI ANALYSIS")
-            print(response.text)
+            ai_output = response.choices[0].message.content
+
+            print(ai_output)
 
             skills = ""
             experience = ""
             job_title = ""
             location = ""
 
-            for line in response.text.split("\n"):
+            for line in ai_output.split("\n"):
 
                 if line.startswith("SKILLS:"):
                     skills = line.replace(
