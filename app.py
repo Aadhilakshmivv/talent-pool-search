@@ -2,6 +2,7 @@ from flask import Flask, render_template, request
 import sqlite3
 import os
 import re
+import time
 from pypdf import PdfReader
 from docx import Document
 import google.generativeai as genai
@@ -207,9 +208,12 @@ Resume:
 
                 if "429" in str(e):
 
-                    print("GEMINI QUOTA EXCEEDED - USING FALLBACK VALUES")
-                    break
+                    print("WAITING 65 SECONDS BEFORE RETRY")
+
+                    time.sleep(65)
+
                 else:
+
                     break
 
         if response:
@@ -250,6 +254,9 @@ Resume:
         print("LOC =", location)
         print("EXP =", experience)
         print("SKILLS =", skills)
+
+        print("RESPONSE IS NONE =", response is None)
+
         save_candidate(
                 name,
                 email,
