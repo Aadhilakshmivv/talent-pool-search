@@ -2,7 +2,6 @@ from flask import Flask, render_template, request
 import sqlite3
 import os
 import re
-import time
 from pypdf import PdfReader
 from docx import Document
 import google.generativeai as genai
@@ -197,8 +196,9 @@ Resume:
         for attempt in range(3):
 
             try:
-
+                print("CALLING GEMINI FOR:", file.filename)
                 response = model.generate_content(prompt)
+                print("GEMINI SUCCESS:",file.filename)
 
                 break
 
@@ -208,9 +208,8 @@ Resume:
 
                 if "429" in str(e):
 
-                    print("WAITING 65 SECONDS BEFORE RETRY")
-
-                    time.sleep(65)
+                    print("GEMINI QUOTA EXCEEDED")
+                    break
 
                 else:
 
