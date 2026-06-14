@@ -2,7 +2,6 @@ from flask import Flask, render_template, request
 import sqlite3
 import os
 import re
-import time
 from pypdf import PdfReader
 from docx import Document
 import google.generativeai as genai
@@ -189,6 +188,11 @@ Resume:
 """
         response = None
 
+        skills = "Not Available"
+        experience = "0"
+        job_title = "Not Available"
+        location = "Not Available"
+
         for attempt in range(3):
 
             try:
@@ -205,15 +209,9 @@ Resume:
 
                     print("Waiting 35 seconds and retrying...")
 
-                    time.sleep(35)
+                    #time.sleep(35)
 
                 else:
-
-                    skills = "Not Available"
-                    experience = "0"
-                    job_title = "Not Available"
-                    location = "Not Available"
-
                     break
 
         if response:
