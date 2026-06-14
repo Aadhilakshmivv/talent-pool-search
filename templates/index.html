@@ -28,13 +28,27 @@
             color: #333;
         }
 
-        input, button {
+        input {
             padding: 10px;
             margin-top: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            min-width: 180px;
         }
 
         button {
+            padding: 10px 18px;
+            margin-top: 10px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
             cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #1d4ed8;
         }
 
         .search-box {
@@ -78,7 +92,7 @@
         <h1>Talent Pool Search</h1>
 
         <p>
-            AI-powered resume search and candidate management
+            Upload resumes, extract candidate information using AI, and search talent instantly.
         </p>
 
     </div>
@@ -168,7 +182,7 @@
 
     <div class="card">
 
-        <h2>All Candidates</h2>
+        <h2>All Candidates ({{ candidates|length }})</h2>
 
         {% if candidates %}
 
