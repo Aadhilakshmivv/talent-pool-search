@@ -207,10 +207,8 @@ Resume:
 
                 if "429" in str(e):
 
-                    print("Waiting 35 seconds and retrying...")
-
-                    #time.sleep(35)
-
+                    print("GEMINI QUOTA EXCEEDED - USING FALLBACK VALUES")
+                    break
                 else:
                     break
 
