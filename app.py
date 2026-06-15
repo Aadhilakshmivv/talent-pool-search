@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request ,send_from_directory
 import sqlite3
 import os
 import re
@@ -91,7 +91,14 @@ def upload():
             reader = PdfReader(file_path)
 
             for page in reader.pages:
-                text += page.extract_text() or ""
+
+                page_text = page.extract_text()
+
+                print("PAGE TEXT =", page_text)
+
+                text += page_text or ""
+
+            print("PDF TEXT LENGTH =", len(text))
 
         elif file.filename.endswith(".docx"):
 
@@ -99,8 +106,21 @@ def upload():
 
             doc = Document(file_path)
 
+            # Normal paragraphs
             for paragraph in doc.paragraphs:
                 text += paragraph.text + "\n"
+
+            # Tables
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        text += cell.text + "\n"
+
+            print("========== EXTRACTED TEXT ==========")
+            print(text)
+            print("===================================")
+
+            print("TEXT LENGTH =", len(text))
 
         else:
             continue
@@ -112,11 +132,25 @@ def upload():
 
         for line in lines:
 
-            if line.strip():
+            line = line.strip()
 
-                name = line.strip()
+            if not line:
+                continue
 
-                break
+            if "@" in line:
+                continue
+
+            if "linkedin" in line.lower():
+                continue
+
+            if "github" in line.lower():
+                continue
+
+            if len(line) > 40:
+                continue
+
+            name = line
+            break
 
         print("Name:", name)
 
@@ -126,20 +160,42 @@ def upload():
         )
 
         phones = re.findall(
-            r'(?:\+91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}',
-            text
+        r'(\+?\d[\d\s\-]{8,15}\d)',
+        text
         )
 
         linkedin_matches = re.findall(
-            r'https?://(?:www\.)?linkedin\.com/[^\s]+',
-            text,
-            re.IGNORECASE
+        r'(?:https?://)?(?:www\.)?linkedin\.com/[^\s]+',
+        text,
+        re.IGNORECASE
         )
 
         linkedin = ""
 
         if linkedin_matches:
             linkedin = linkedin_matches[0]
+
+        else:
+            linkedin_short = re.findall(
+                r'linkedin/[A-Za-z0-9_-]+',
+                text,
+                re.IGNORECASE
+            )
+
+            if linkedin_short:
+                linkedin = linkedin_short[0]
+
+
+        github = ""
+
+        github_matches = re.findall(
+            r'github/[A-Za-z0-9_-]+',
+            text,
+            re.IGNORECASE
+        )
+
+        if github_matches:
+            github = github_matches[0]
 
         print("\nCONTACT DETAILS FOUND")
         print("Emails:", emails)
@@ -149,6 +205,17 @@ def upload():
 
         scrubbed_text = text
 
+        if linkedin:
+            scrubbed_text = scrubbed_text.replace(
+                linkedin,
+                "[LINKEDIN]"
+            )
+        
+        if github:
+            scrubbed_text = scrubbed_text.replace(
+                github,
+                "[GITHUB]"
+            )
         for email in emails:
             scrubbed_text = scrubbed_text.replace(
                 email,
@@ -300,6 +367,24 @@ def search():
 
     min_experience = request.args.get("experience", "")
 
+    if (
+        skill.strip() == "" and
+        location.strip() == "" and
+        min_experience.strip() == ""
+    ):
+        return """
+        <html>
+        <body style="font-family: Arial; margin:40px;">
+            <h2>Please enter at least one search criteria.</h2>
+
+            <br>
+
+            <a href="/">Back</a>
+
+        </body>
+        </html>
+        """
+
     if min_experience == "":
         min_experience = "0"
 
@@ -338,6 +423,26 @@ def search():
 
     output = """
     <html>
+    <head>
+    <style>
+
+    .profile-btn {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 8px 15px;
+        background: #007bff;
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+    }
+
+    .profile-btn:hover {
+        background: #0056b3;
+    }
+
+    </style>
+    </head>
+
     <body style="font-family: Arial; margin: 40px;">
     <h1>Search Results</h1>
     """
@@ -354,13 +459,17 @@ def search():
 
         <h2>{row[1]}</h2>
 
-        <p><b>File:</b> {row[5]}</p>
-
         <p><b>Skills:</b><br>{row[6]}</p>
 
         <p><b>Experience:</b> {row[7]} years</p>
 
         <p><b>Location:</b> {row[9]}</p>
+
+        <a
+            class="profile-btn"
+            href="/profile/{row[0]}">
+            View Profile
+        </a>
 
         </div>
         """
@@ -401,11 +510,26 @@ def profile(id):
 
     <h1>{candidate[1]}</h1>
 
-    <p><b>Email:</b> {candidate[2]}</p>
+    <p>
+    <b>Email:</b>
+    <a href="mailto:{candidate[2]}">
+        {candidate[2]}
+    </a>
+    </p>
 
-    <p><b>Phone:</b> {candidate[3]}</p>
+    <p>
+    <b>Phone:</b>
+    <a href="tel:{candidate[3]}">
+        {candidate[3]}
+    </a>
+    </p>
 
-    <p><b>LinkedIn:</b> {candidate[4]}</p>
+    <p>
+    <b>LinkedIn:</b>
+    <a href="https://{candidate[4]}" target="_blank">
+        {candidate[4]}
+    </a>
+    </p>
 
     <p><b>File:</b> {candidate[5]}</p>
 
@@ -419,10 +543,36 @@ def profile(id):
 
     <br>
 
+    <a
+        href="/resume/{candidate[5]}"
+        style="
+            display:inline-block;
+            padding:8px 15px;
+            background:#28a745;
+            color:white;
+            text-decoration:none;
+            border-radius:5px;
+        ">
+        View Resume
+    </a>
+
+<br><br>
+
     <a href="/">Back</a>
 
     </body>
     </html>
     """
+
+@app.route("/resume/<path:filename>")
+def view_resume(filename):
+
+    return send_from_directory(
+        app.config["UPLOAD_FOLDER"],
+        filename,
+        as_attachment=False
+    )
+
+
 if __name__ == "__main__":
     app.run(debug=True)
