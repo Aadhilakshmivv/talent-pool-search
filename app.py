@@ -28,6 +28,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 def home():
 
     message = request.args.get("message", "")
+    error = request.args.get("error", "")
 
     conn = sqlite3.connect("candidates.db")
     cursor = conn.cursor()
@@ -58,10 +59,13 @@ def home():
     conn.commit()
     conn.close()
 
+    print("ERROR PARAM =", error)
+
     return render_template(
         "index.html",
         candidates=candidates,
-        message=message
+        message=message,
+        error=error
     )
 
 
@@ -70,294 +74,311 @@ def upload():
 
     files = request.files.getlist("resumes")
     success_count = 0
+    failed_files = []
+    failed_reasons = []
 
     if not files or files[0].filename == "":
         return "No file selected!"
 
     for file in files:
-        print("Processing File:", file.filename)
+        try:
+            print("Processing File:", file.filename)
 
-        file_path = os.path.join(
-            app.config["UPLOAD_FOLDER"],
-            file.filename
-        )
+            file_path = os.path.join(
+                app.config["UPLOAD_FOLDER"],
+                file.filename
+            )
 
-        file.save(file_path)
+            file.save(file_path)
 
-        text = ""
+            text = ""
 
-        if file.filename.endswith(".pdf"):
+            if file.filename.endswith(".pdf"):
 
-            reader = PdfReader(file_path)
+                reader = PdfReader(file_path)
 
-            for page in reader.pages:
+                for page in reader.pages:
 
-                page_text = page.extract_text()
+                    page_text = page.extract_text()
 
-                print("PAGE TEXT =", page_text)
+                    print("PAGE TEXT =", page_text)
 
-                text += page_text or ""
+                    text += page_text or ""
 
-            print("PDF TEXT LENGTH =", len(text))
+                print("PDF TEXT LENGTH =", len(text))
 
-        elif file.filename.endswith(".docx"):
+            elif file.filename.endswith(".docx"):
 
-            print("DOCX DETECTED")
+                print("DOCX DETECTED")
 
-            doc = Document(file_path)
+                doc = Document(file_path)
 
-            # Normal paragraphs
-            for paragraph in doc.paragraphs:
-                text += paragraph.text + "\n"
+                # Normal paragraphs
+                for paragraph in doc.paragraphs:
+                    text += paragraph.text + "\n"
 
-            # Tables
-            for table in doc.tables:
-                for row in table.rows:
-                    for cell in row.cells:
-                        text += cell.text + "\n"
+                # Tables
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            text += cell.text + "\n"
 
-            print("========== EXTRACTED TEXT ==========")
-            print(text)
-            print("===================================")
+                print("========== EXTRACTED TEXT ==========")
+                print(text)
+                print("===================================")
 
-            print("TEXT LENGTH =", len(text))
+                print("TEXT LENGTH =", len(text))
 
-        else:
-            continue
-
-
-        lines = text.split("\n")
-
-        name = ""
-
-        for line in lines:
-
-            line = line.strip()
-
-            if not line:
+            else:
                 continue
 
-            if "@" in line:
-                continue
 
-            if "linkedin" in line.lower():
-                continue
+            lines = text.split("\n")
 
-            if "github" in line.lower():
-                continue
+            name = ""
 
-            if len(line) > 40:
-                continue
+            for line in lines:
 
-            name = line
-            break
+                line = line.strip()
 
-        print("Name:", name)
+                if not line:
+                    continue
 
-        emails = re.findall(
-            r'[\w\.-]+@[\w\.-]+\.\w+',
+                if "@" in line:
+                    continue
+
+                if "linkedin" in line.lower():
+                    continue
+
+                if "github" in line.lower():
+                    continue
+
+                if len(line) > 40:
+                    continue
+
+                name = line
+                break
+
+            print("Name:", name)
+
+            emails = re.findall(
+                r'[\w\.-]+@[\w\.-]+\.\w+',
+                text
+            )
+
+            phones = re.findall(
+            r'(\+?\d[\d\s\-]{8,15}\d)',
             text
-        )
+            )
 
-        phones = re.findall(
-        r'(\+?\d[\d\s\-]{8,15}\d)',
-        text
-        )
+            linkedin_matches = re.findall(
+            r'(?:https?://)?(?:www\.)?linkedin\.com/[^\s]+',
+            text,
+            re.IGNORECASE
+            )
 
-        linkedin_matches = re.findall(
-        r'(?:https?://)?(?:www\.)?linkedin\.com/[^\s]+',
-        text,
-        re.IGNORECASE
-        )
+            linkedin = ""
 
-        linkedin = ""
+            if linkedin_matches:
+                linkedin = linkedin_matches[0]
 
-        if linkedin_matches:
-            linkedin = linkedin_matches[0]
+            else:
+                linkedin_short = re.findall(
+                    r'linkedin/[A-Za-z0-9_-]+',
+                    text,
+                    re.IGNORECASE
+                )
 
-        else:
-            linkedin_short = re.findall(
-                r'linkedin/[A-Za-z0-9_-]+',
+                if linkedin_short:
+                    linkedin = linkedin_short[0]
+
+
+            github = ""
+
+            github_matches = re.findall(
+                r'github/[A-Za-z0-9_-]+',
                 text,
                 re.IGNORECASE
             )
 
-            if linkedin_short:
-                linkedin = linkedin_short[0]
+            if github_matches:
+                github = github_matches[0]
 
+            print("\nCONTACT DETAILS FOUND")
+            print("Emails:", emails)
+            print("Phones:", phones)
+            email = emails[0] if emails else ""
+            phone = phones[0] if phones else ""
 
-        github = ""
+            scrubbed_text = text
 
-        github_matches = re.findall(
-            r'github/[A-Za-z0-9_-]+',
-            text,
-            re.IGNORECASE
-        )
-
-        if github_matches:
-            github = github_matches[0]
-
-        print("\nCONTACT DETAILS FOUND")
-        print("Emails:", emails)
-        print("Phones:", phones)
-        email = emails[0] if emails else ""
-        phone = phones[0] if phones else ""
-
-        scrubbed_text = text
-
-        if linkedin:
-            scrubbed_text = scrubbed_text.replace(
-                linkedin,
-                "[LINKEDIN]"
-            )
-        
-        if github:
-            scrubbed_text = scrubbed_text.replace(
-                github,
-                "[GITHUB]"
-            )
-        for email in emails:
-            scrubbed_text = scrubbed_text.replace(
-                email,
-                "[EMAIL]"
-            )
-
-        for phone in phones:
-            scrubbed_text = scrubbed_text.replace(
-                phone,
-                "[PHONE]"
-            )
-
-        scrubbed_text = scrubbed_text.replace(
-            "LinkedIn",
-            "[LINKEDIN]"
-        )
-        scrubbed_text = scrubbed_text.replace(
-            "GitHub",
-            "[GITHUB]"
-        )
-
-        print("\nSCRUBBED TEXT")
-        print(scrubbed_text[:500])
-
-
-        prompt = f"""
-Analyze this resume.
-
-Return ONLY in this exact format:
-
-SKILLS:<comma separated skills>
-EXPERIENCE:<years>
-JOB_TITLE:<most recent job title>
-LOCATION:<location>
-
-Resume:
-
-{scrubbed_text}
-"""
-        response = None
-
-        skills = "Not Available"
-        experience = "0"
-        job_title = "Not Available"
-        location = "Not Available"
-
-        for attempt in range(3):
-
-            try:
-
-                response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ]
+            if linkedin:
+                scrubbed_text = scrubbed_text.replace(
+                    linkedin,
+                    "[LINKEDIN]"
+                )
+            
+            if github:
+                scrubbed_text = scrubbed_text.replace(
+                    github,
+                    "[GITHUB]"
+                )
+            for email in emails:
+                scrubbed_text = scrubbed_text.replace(
+                    email,
+                    "[EMAIL]"
                 )
 
-                break
+            for phone in phones:
+                scrubbed_text = scrubbed_text.replace(
+                    phone,
+                    "[PHONE]"
+                )
 
-            except Exception as e:
+            scrubbed_text = scrubbed_text.replace(
+                "LinkedIn",
+                "[LINKEDIN]"
+            )
+            scrubbed_text = scrubbed_text.replace(
+                "GitHub",
+                "[GITHUB]"
+            )
 
-                print("GROQ ERROR:", e)
+            print("\nSCRUBBED TEXT")
+            print(scrubbed_text[:500])
 
-                break
 
-    
+            prompt = f"""
+        Analyze this resume.
 
-        if response:
-            print("\nAI ANALYSIS")
-            ai_output = response.choices[0].message.content
+        Return ONLY in this exact format:
 
-            print(ai_output)
+        SKILLS:<comma separated skills>
+        EXPERIENCE:<years>
+        JOB_TITLE:<most recent job title>
+        LOCATION:<location>
 
-            skills = ""
-            experience = ""
-            job_title = ""
-            location = ""
+        Resume:
 
-            for line in ai_output.split("\n"):
+        {scrubbed_text}
+        """
+            response = None
 
-                if line.startswith("SKILLS:"):
-                    skills = line.replace(
-                        "SKILLS:",
-                        ""
-                    ).strip()
+            skills = "Not Available"
+            experience = "0"
+            job_title = "Not Available"
+            location = "Not Available"
 
-                elif line.startswith("EXPERIENCE:"):
-                    experience = line.replace(
-                        "EXPERIENCE:",
-                        ""
-                    ).strip()
+            for attempt in range(3):
 
-                elif line.startswith("JOB_TITLE:"):
-                    job_title = line.replace(
-                        "JOB_TITLE:",
-                        ""
-                    ).strip()
+                try:
 
-                elif line.startswith("LOCATION:"):
-                    location = line.replace(
-                        "LOCATION:",
-                        ""
-                    ).strip()
-        print("JOB =", job_title)
-        print("LOC =", location)
-        print("EXP =", experience)
-        print("SKILLS =", skills)
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ]
+                    )
 
-        print("RESPONSE IS NONE =", response is None)
+                    break
 
-        save_candidate(
-                name,
-                email,
-                phone,
-                linkedin,
-                file.filename,
-                skills,
-                experience,
-                job_title,
-                location
-        )
+                except Exception as e:
 
-        success_count += 1
+                    print("GROQ ERROR:", e)
+
+                    break
+
+
+
+            if response:
+                print("\nAI ANALYSIS")
+                ai_output = response.choices[0].message.content
+
+                print(ai_output)
+
+                skills = ""
+                experience = ""
+                job_title = ""
+                location = ""
+
+                for line in ai_output.split("\n"):
+
+                    if line.startswith("SKILLS:"):
+                        skills = line.replace(
+                            "SKILLS:",
+                            ""
+                        ).strip()
+
+                    elif line.startswith("EXPERIENCE:"):
+                        experience = line.replace(
+                            "EXPERIENCE:",
+                            ""
+                        ).strip()
+
+                    elif line.startswith("JOB_TITLE:"):
+                        job_title = line.replace(
+                            "JOB_TITLE:",
+                            ""
+                        ).strip()
+
+                    elif line.startswith("LOCATION:"):
+                        location = line.replace(
+                            "LOCATION:",
+                            ""
+                        ).strip()
+            print("JOB =", job_title)
+            print("LOC =", location)
+            print("EXP =", experience)
+            print("SKILLS =", skills)
+
+            print("RESPONSE IS NONE =", response is None)
+
+            save_candidate(
+                    name,
+                    email,
+                    phone,
+                    linkedin,
+                    file.filename,
+                    skills,
+                    experience,
+                    job_title,
+                    location
+            )
+
+            success_count += 1
+
+        except Exception as e:
+            print("ERROR:", e)
+
+            error_message = str(e)
+
+            if "Stream has ended unexpectedly" in error_message:
+                error_message = "Invalid or corrupted PDF file."
+
+            failed_files.append(file.filename)
+            failed_reasons.append(error_message)
     print("SUCCESS COUNT =", success_count)
 
-    print("Saved structured data to database!")    
+    print("Saved structured data to database!")
+    
+    if success_count == 0:
+        message = ""
+    elif success_count == 1:
+        message = "1 resume processed successfully"
+    else:
+        message = f"{success_count} resumes processed successfully"
+    error = ""
+        
 
-            
+    if failed_files:
+        error = f"&error={failed_files[0]}: {failed_reasons[0]}"
 
-    print("\n" + "=" * 50)
-    print(f"FILE: {file.filename}")
-    print("=" * 50)
-    print(text[:1000])
-    print("=" * 50)
-
-    if success_count == 1:
-        return redirect("/?message=1 resume processed successfully")
-
-    return redirect(f"/?message={success_count} resumes processed successfully")
+    return redirect(
+        f"/?message={message}{error}"
+    )
 
 @app.route("/search")
 def search():

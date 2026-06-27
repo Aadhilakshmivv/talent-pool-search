@@ -129,6 +129,19 @@
         </div>
         {% endif %}
 
+        {% if error %}
+        <div
+            style="
+            background:#f8d7da;
+            color:#721c24;
+            padding:12px;
+            border-radius:8px;
+            margin-bottom:15px;
+        ">
+            ❌ {{ error }}
+        </div>
+        {% endif %}
+
         <form
     id="uploadForm"
     action="/upload"
