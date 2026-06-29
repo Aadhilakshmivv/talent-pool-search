@@ -134,3 +134,20 @@ def mark_retry_job_completed(job_id):
     conn.commit()
     conn.close()
 
+def candidate_exists(filename):
+
+    conn = sqlite3.connect("candidates.db")
+
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM candidates
+    WHERE filename = ?
+    """, (filename,))
+
+    exists = cursor.fetchone()[0] > 0
+
+    conn.close()
+
+    return exists

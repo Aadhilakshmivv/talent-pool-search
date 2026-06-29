@@ -49,3 +49,5 @@ Upload failed: aman resume.docx | Reason: name 'emails' is not defined
 Upload started: aman_resume.docx
 AI API successful: aman_resume.docx | Time taken: 0.52 seconds
 Upload successful: aman_resume.docx
+AI API successful: Aiswarya_resume.docx | Time taken: 0.73 seconds
+Search: skill='', location='Chennai', experience='0' | Results: 6

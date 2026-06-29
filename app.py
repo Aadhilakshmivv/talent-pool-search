@@ -10,7 +10,13 @@ from pypdf import PdfReader
 from docx import Document
 from dotenv import load_dotenv
 from groq import Groq
-from database import save_candidate, save_retry_job, get_pending_retry_jobs, mark_retry_job_completed
+from database import (
+    save_candidate,
+    save_retry_job,
+    get_pending_retry_jobs,
+    mark_retry_job_completed,
+    candidate_exists
+)
 from flask import redirect
 import logging
 from logging.handlers import RotatingFileHandler
@@ -220,6 +226,133 @@ def analyze_resume(prompt, filename):
             print("GROQ ERROR:", e)
 
             return None
+
+def retry_pending_jobs():
+
+    jobs = get_pending_retry_jobs()
+
+    print(f"Pending jobs: {len(jobs)}")
+
+    for job in jobs:
+
+        filename = job[1]
+
+        file_path = os.path.join(
+            app.config["UPLOAD_FOLDER"],
+            filename
+        )
+
+        if not os.path.exists(file_path):
+
+            print(f"File not found: {filename}")
+
+            continue
+
+        print(f"Retrying: {filename}")
+
+        text, name, email, phone, linkedin, github, emails, phones = process_resume(
+            file_path,
+            filename
+        )
+
+        scrubbed_text = text
+
+        if linkedin:
+            scrubbed_text = scrubbed_text.replace(
+                linkedin,
+                "[LINKEDIN]"
+            )
+
+        if github:
+            scrubbed_text = scrubbed_text.replace(
+                github,
+                "[GITHUB]"
+            )
+
+        for email in emails:
+            scrubbed_text = scrubbed_text.replace(
+                email,
+                "[EMAIL]"
+            )
+
+        for phone in phones:
+            scrubbed_text = scrubbed_text.replace(
+                phone,
+                "[PHONE]"
+            )
+
+        scrubbed_text = scrubbed_text.replace(
+            "LinkedIn",
+            "[LINKEDIN]"
+        )
+
+        scrubbed_text = scrubbed_text.replace(
+            "GitHub",
+            "[GITHUB]"
+        )
+
+        prompt = f"""
+        Analyze this resume.
+
+        Return ONLY in this exact format:
+
+        SKILLS:<comma separated skills>
+        EXPERIENCE:<years>
+        JOB_TITLE:<most recent job title>
+        LOCATION:<location>
+
+        Resume:
+
+        {scrubbed_text}
+        """
+
+        response = analyze_resume(
+            prompt,
+            filename
+        )
+
+        if not response:
+            continue
+
+        skills, experience, job_title, location = parse_ai_response(
+            response
+        )
+
+        if not candidate_exists(filename):
+
+            save_candidate(
+                name,
+                email,
+                phone,
+                linkedin,
+                filename,
+                skills,
+                experience,
+                job_title,
+                location
+            )
+
+        mark_retry_job_completed(job[0])
+
+        print(f"Retry completed: {filename}")
+
+@app.route("/retry-now")
+@login_required
+def retry_now():
+
+    retry_pending_jobs()
+
+    return """
+    <html>
+    <body style="font-family: Arial; margin:40px;">
+        <h2>Retry process completed.</h2>
+
+        <br>
+
+        <a href="/">Back</a>
+    </body>
+    </html>
+    """
 
 def process_resume(file_path, filename):
 
