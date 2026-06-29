@@ -103,6 +103,19 @@
 
     <div class="card">
 
+        <a
+            href="/logout"
+            style="
+                float:right;
+                background:#dc3545;
+                color:white;
+                padding:8px 15px;
+                text-decoration:none;
+                border-radius:5px;
+            ">
+            Logout
+        </a>
+
         <h1>Talent Pool Search</h1>
 
         <p>
@@ -153,8 +166,11 @@
         name="resumes"
         multiple
         accept=".pdf,.doc,.docx">
-
-    <br><br>
+    
+    <p style="color:#6b7280; font-size:13px;">
+        • Allowed file types: PDF, DOCX<br>
+        • Maximum file size: 5 MB
+    </p>
 
     <button type="submit"
     id="uploadBtn">

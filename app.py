@@ -1,4 +1,8 @@
-from flask import Flask, render_template, request ,send_from_directory
+from flask import Flask, render_template, request ,send_from_directory, session
+from werkzeug.utils import secure_filename
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from functools import wraps
 import sqlite3
 import os
 import re
@@ -6,11 +10,45 @@ from pypdf import PdfReader
 from docx import Document
 from dotenv import load_dotenv
 from groq import Groq
-from database import save_candidate
+from database import save_candidate, save_retry_job, get_pending_retry_jobs, mark_retry_job_completed
 from flask import redirect
-
+import logging
+from logging.handlers import RotatingFileHandler
+import time
 
 app = Flask(__name__)
+
+handler = RotatingFileHandler(
+    "app.log",
+    maxBytes=1024 * 1024,
+    backupCount=5
+)
+
+handler.setLevel(logging.INFO)
+
+app.logger.addHandler(handler)
+
+app.logger.setLevel(logging.INFO)
+
+app.secret_key = "change_this_for_production"
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[]
+)
+
+def login_required(f):
+
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+
+        if not session.get("logged_in"):
+            return redirect("/login")
+
+        return f(*args, **kwargs)
+
+    return decorated_function
 
 load_dotenv()
 
@@ -22,9 +60,42 @@ UPLOAD_FOLDER = "uploads"
 import os
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if request.method == "POST":
+
+        username = request.form.get("username")
+        password = request.form.get("password")
+
+        if (
+            username == "recruiter"
+            and
+            password == "password123"
+        ):
+
+            session["logged_in"] = True
+
+            return redirect("/")
+
+        return render_template(
+            "login.html",
+            error="Invalid username or password."
+        )
+
+    return render_template("login.html")
+
+@app.route("/logout")
+def logout():
+
+    session.clear()
+
+    return redirect("/login")
 
 @app.route("/")
+@login_required
 def home():
 
     message = request.args.get("message", "")
@@ -59,8 +130,6 @@ def home():
     conn.commit()
     conn.close()
 
-    print("ERROR PARAM =", error)
-
     return render_template(
         "index.html",
         candidates=candidates,
@@ -68,8 +137,209 @@ def home():
         error=error
     )
 
+def parse_ai_response(response):
+
+    skills = "Not Available"
+    experience = "0"
+    job_title = "Not Available"
+    location = "Not Available"
+
+    if response:
+
+        ai_output = response.choices[0].message.content
+
+        for line in ai_output.split("\n"):
+
+            if line.startswith("SKILLS:"):
+                skills = line.replace(
+                    "SKILLS:",
+                    ""
+                ).strip()
+
+            elif line.startswith("EXPERIENCE:"):
+                experience = line.replace(
+                    "EXPERIENCE:",
+                    ""
+                ).strip()
+
+            elif line.startswith("JOB_TITLE:"):
+                job_title = line.replace(
+                    "JOB_TITLE:",
+                    ""
+                ).strip()
+
+            elif line.startswith("LOCATION:"):
+                location = line.replace(
+                    "LOCATION:",
+                    ""
+                ).strip()
+
+    return (
+        skills,
+        experience,
+        job_title,
+        location
+    )
+
+def analyze_resume(prompt, filename):
+
+    start_time = time.time()
+
+    for attempt in range(3):
+
+        try:
+
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+
+            end_time = time.time()
+
+            app.logger.info(
+                f"AI API successful: {filename} | Time taken: {end_time - start_time:.2f} seconds"
+            )
+
+            return response
+
+        except Exception as e:
+
+            end_time = time.time()
+
+            app.logger.error(
+                f"AI API failed: {filename} | Time taken: {end_time - start_time:.2f} seconds | Error: {str(e)}"
+            )
+
+            save_retry_job(filename)
+
+            print("GROQ ERROR:", e)
+
+            return None
+
+def process_resume(file_path, filename):
+
+    print(f"Processing resume: {filename}")
+
+    text = ""
+
+    if filename.endswith(".pdf"):
+
+        reader = PdfReader(file_path)
+
+        for page in reader.pages:
+
+            page_text = page.extract_text()
+
+            text += page_text or ""
+
+    elif filename.endswith(".docx"):
+
+        doc = Document(file_path)
+
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    text += cell.text + "\n"
+
+    print("Resume text extracted.")
+
+    lines = text.split("\n")
+
+    name = ""
+
+    for line in lines:
+
+        line = line.strip()
+
+        if not line:
+            continue
+
+        if "@" in line:
+            continue
+
+        if "linkedin" in line.lower():
+            continue
+
+        if "github" in line.lower():
+            continue
+
+        if len(line) > 40:
+            continue
+
+        name = line
+        break
+
+    print(f"Candidate extracted from file : {filename}")
+
+    emails = re.findall(
+        r'[\w\.-]+@[\w\.-]+\.\w+',
+        text
+    )
+
+    phones = re.findall(
+        r'(\+?\d[\d\s\-]{8,15}\d)',
+        text
+    )
+
+    linkedin_matches = re.findall(
+        r'(?:https?://)?(?:www\.)?linkedin\.com/[^\s]+',
+        text,
+        re.IGNORECASE
+    )
+
+    linkedin = ""
+
+    if linkedin_matches:
+        linkedin = linkedin_matches[0]
+    else:
+        linkedin_short = re.findall(
+            r'linkedin/[A-Za-z0-9_-]+',
+            text,
+            re.IGNORECASE
+        )
+
+        if linkedin_short:
+            linkedin = linkedin_short[0]
+
+    github = ""
+
+    github_matches = re.findall(
+        r'github/[A-Za-z0-9_-]+',
+        text,
+        re.IGNORECASE
+    )
+
+    if github_matches:
+        github = github_matches[0]
+
+    email = emails[0] if emails else ""
+    phone = phones[0] if phones else ""
+
+    print("Contact details extracted successfully")
+
+    return (
+        text,
+        name,
+        email,
+        phone,
+        linkedin,
+        github,
+        emails,
+        phones
+    )
+
 
 @app.route("/upload", methods=["POST"])
+@login_required
+@limiter.limit("30 per minute")
 def upload():
 
     files = request.files.getlist("resumes")
@@ -83,132 +353,33 @@ def upload():
     for file in files:
         try:
             print("Processing File:", file.filename)
+            
+            filename = secure_filename(file.filename)
+
+            app.logger.info(f"Upload started: {filename}")
 
             file_path = os.path.join(
                 app.config["UPLOAD_FOLDER"],
-                file.filename
+                filename
             )
+
+            if not (
+                file.filename.lower().endswith(".pdf")
+                or
+                file.filename.lower().endswith(".docx")
+            ):
+                failed_files.append(file.filename)
+                failed_reasons.append(
+                    "Only PDF and DOCX files are allowed."
+                )
+                continue
 
             file.save(file_path)
 
-            text = ""
-
-            if file.filename.endswith(".pdf"):
-
-                reader = PdfReader(file_path)
-
-                for page in reader.pages:
-
-                    page_text = page.extract_text()
-
-                    print("PAGE TEXT =", page_text)
-
-                    text += page_text or ""
-
-                print("PDF TEXT LENGTH =", len(text))
-
-            elif file.filename.endswith(".docx"):
-
-                print("DOCX DETECTED")
-
-                doc = Document(file_path)
-
-                # Normal paragraphs
-                for paragraph in doc.paragraphs:
-                    text += paragraph.text + "\n"
-
-                # Tables
-                for table in doc.tables:
-                    for row in table.rows:
-                        for cell in row.cells:
-                            text += cell.text + "\n"
-
-                print("========== EXTRACTED TEXT ==========")
-                print(text)
-                print("===================================")
-
-                print("TEXT LENGTH =", len(text))
-
-            else:
-                continue
-
-
-            lines = text.split("\n")
-
-            name = ""
-
-            for line in lines:
-
-                line = line.strip()
-
-                if not line:
-                    continue
-
-                if "@" in line:
-                    continue
-
-                if "linkedin" in line.lower():
-                    continue
-
-                if "github" in line.lower():
-                    continue
-
-                if len(line) > 40:
-                    continue
-
-                name = line
-                break
-
-            print("Name:", name)
-
-            emails = re.findall(
-                r'[\w\.-]+@[\w\.-]+\.\w+',
-                text
+            text, name, email, phone, linkedin, github,emails, phones = process_resume(
+                file_path,
+                filename
             )
-
-            phones = re.findall(
-            r'(\+?\d[\d\s\-]{8,15}\d)',
-            text
-            )
-
-            linkedin_matches = re.findall(
-            r'(?:https?://)?(?:www\.)?linkedin\.com/[^\s]+',
-            text,
-            re.IGNORECASE
-            )
-
-            linkedin = ""
-
-            if linkedin_matches:
-                linkedin = linkedin_matches[0]
-
-            else:
-                linkedin_short = re.findall(
-                    r'linkedin/[A-Za-z0-9_-]+',
-                    text,
-                    re.IGNORECASE
-                )
-
-                if linkedin_short:
-                    linkedin = linkedin_short[0]
-
-
-            github = ""
-
-            github_matches = re.findall(
-                r'github/[A-Za-z0-9_-]+',
-                text,
-                re.IGNORECASE
-            )
-
-            if github_matches:
-                github = github_matches[0]
-
-            print("\nCONTACT DETAILS FOUND")
-            print("Emails:", emails)
-            print("Phones:", phones)
-            email = emails[0] if emails else ""
-            phone = phones[0] if phones else ""
 
             scrubbed_text = text
 
@@ -244,8 +415,7 @@ def upload():
                 "[GITHUB]"
             )
 
-            print("\nSCRUBBED TEXT")
-            print(scrubbed_text[:500])
+            print("Resume text scrubbed successfully.")
 
 
             prompt = f"""
@@ -262,98 +432,45 @@ def upload():
 
         {scrubbed_text}
         """
-            response = None
-
-            skills = "Not Available"
-            experience = "0"
-            job_title = "Not Available"
-            location = "Not Available"
-
-            for attempt in range(3):
-
-                try:
-
-                    response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ]
-                    )
-
-                    break
-
-                except Exception as e:
-
-                    print("GROQ ERROR:", e)
-
-                    break
-
-
-
-            if response:
-                print("\nAI ANALYSIS")
-                ai_output = response.choices[0].message.content
-
-                print(ai_output)
-
-                skills = ""
-                experience = ""
-                job_title = ""
-                location = ""
-
-                for line in ai_output.split("\n"):
-
-                    if line.startswith("SKILLS:"):
-                        skills = line.replace(
-                            "SKILLS:",
-                            ""
-                        ).strip()
-
-                    elif line.startswith("EXPERIENCE:"):
-                        experience = line.replace(
-                            "EXPERIENCE:",
-                            ""
-                        ).strip()
-
-                    elif line.startswith("JOB_TITLE:"):
-                        job_title = line.replace(
-                            "JOB_TITLE:",
-                            ""
-                        ).strip()
-
-                    elif line.startswith("LOCATION:"):
-                        location = line.replace(
-                            "LOCATION:",
-                            ""
-                        ).strip()
-            print("JOB =", job_title)
-            print("LOC =", location)
-            print("EXP =", experience)
-            print("SKILLS =", skills)
-
-            print("RESPONSE IS NONE =", response is None)
-
-            save_candidate(
-                    name,
-                    email,
-                    phone,
-                    linkedin,
-                    file.filename,
-                    skills,
-                    experience,
-                    job_title,
-                    location
+            response = analyze_resume(
+                prompt,
+                filename
             )
 
-            success_count += 1
+            skills, experience, job_title, location = parse_ai_response(
+                response
+            )
 
+            if response:
+                print(f"AI analysis completed: {filename}")
+                
+                print("AI fields extracted successfully.")
+                print("RESPONSE IS NONE =", response is None)
+
+                save_candidate(
+                        name,
+                        email,
+                        phone,
+                        linkedin,
+                        filename,
+                        skills,
+                        experience,
+                        job_title,
+                        location
+                )
+
+                success_count += 1
+                app.logger.info(f"Upload successful: {filename}")
+            else:
+                continue
         except Exception as e:
             print("ERROR:", e)
 
             error_message = str(e)
+
+            app.logger.error(
+                f"Upload failed: {file.filename} | Reason: {error_message}"
+            )
 
             if "Stream has ended unexpectedly" in error_message:
                 error_message = "Invalid or corrupted PDF file."
@@ -381,6 +498,7 @@ def upload():
     )
 
 @app.route("/search")
+@login_required
 def search():
 
     skill = request.args.get("skill", "")
@@ -425,9 +543,7 @@ def search():
     ))
 
     results = cursor.fetchall()
-    print("SEARCH SKILL =", skill)
-    print("SEARCH LOCATION =", location)
-    print("RESULTS =", results)
+    
     filtered_results = []
 
     for row in results:
@@ -439,6 +555,11 @@ def search():
 
         except Exception as e:
             print("ERROR =", e)
+    print(f"Search completed. Results found:{len(filtered_results)}")
+
+    app.logger.info(
+        f"Search: skill='{skill}', location='{location}', experience='{min_experience}' | Results: {len(filtered_results)}"
+    )
 
     conn.close()
 
@@ -508,6 +629,7 @@ def search():
     return output
 
 @app.route("/profile/<int:id>")
+@login_required
 def profile(id):
 
     conn = sqlite3.connect("candidates.db")
@@ -586,6 +708,7 @@ def profile(id):
     """
 
 @app.route("/resume/<path:filename>")
+@login_required
 def view_resume(filename):
 
     return send_from_directory(
@@ -594,6 +717,55 @@ def view_resume(filename):
         as_attachment=False
     )
 
+@app.route("/retry-pending")
+@login_required
+def retry_pending():
+
+    jobs = get_pending_retry_jobs()
+
+    output = "<h1>Pending Retry Jobs</h1>"
+
+    if len(jobs) == 0:
+
+        output += "<p>No pending jobs.</p>"
+
+    else:
+
+        for job in jobs:
+
+            output += f"""
+            <p>
+            Job ID: {job[0]}
+            <br>
+            File: {job[1]}
+            <br>
+            Status: {job[2]}
+            <br><br>
+            </p>
+            """
+
+    return output
+
+@app.errorhandler(413)
+def file_too_large(error):
+
+    return redirect(
+        "/?error=File is too large. Maximum allowed size is 5 MB."
+    )
+
+@app.errorhandler(429)
+def too_many_requests(error):
+
+    return redirect(
+        "/?error=Too many upload requests. Please wait a minute and try again."
+    )
+
+@app.errorhandler(Exception)
+def handle_exception(error):
+
+    app.logger.exception(f"Unhandled exception: {str(error)}")
+
+    return "An unexpected error occurred.", 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
