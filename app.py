@@ -24,6 +24,7 @@ import time
 
 app = Flask(__name__)
 
+# Added structured logging to record important application events for troubleshooting and monitoring.
 handler = RotatingFileHandler(
     "app.log",
     maxBytes=1024 * 1024,
@@ -44,6 +45,7 @@ limiter = Limiter(
     default_limits=[]
 )
 
+# Added authentication to ensure only logged-in recruiters can access protected pages.
 def login_required(f):
 
     @wraps(f)
@@ -66,6 +68,7 @@ UPLOAD_FOLDER = "uploads"
 import os
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+# Added a maximum upload size to prevent extremely large files from consuming server resources.
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
 @app.route("/login", methods=["GET", "POST"])
@@ -143,6 +146,7 @@ def home():
         error=error
     )
 
+# Added a helper function to extract structured AI responses into candidate information.
 def parse_ai_response(response):
 
     skills = "Not Available"
@@ -187,6 +191,7 @@ def parse_ai_response(response):
         location
     )
 
+# Updated AI processing to record API success, failure, and response time for monitoring and troubleshooting.
 def analyze_resume(prompt, filename):
 
     start_time = time.time()
@@ -472,6 +477,7 @@ def process_resume(file_path, filename):
 
 @app.route("/upload", methods=["POST"])
 @login_required
+# Added rate limiting to reduce the risk of excessive upload requests and protect the application from abuse.
 @limiter.limit("30 per minute")
 def upload():
 
@@ -487,6 +493,7 @@ def upload():
         try:
             print("Processing File:", file.filename)
             
+            # Updated file handling to sanitize uploaded filenames and prevent unsafe file paths.
             filename = secure_filename(file.filename)
 
             app.logger.info(f"Upload started: {filename}")
@@ -496,6 +503,7 @@ def upload():
                 filename
             )
 
+            # Added file type validation to allow only PDF and DOCX resume uploads.
             if not (
                 file.filename.lower().endswith(".pdf")
                 or
@@ -514,6 +522,7 @@ def upload():
                 filename
             )
 
+            # Updated resume processing to remove sensitive personal information before sending data to the AI service.
             scrubbed_text = text
 
             if linkedin:
@@ -690,6 +699,7 @@ def search():
             print("ERROR =", e)
     print(f"Search completed. Results found:{len(filtered_results)}")
 
+    # Added search logging to help track recruiter searches and troubleshoot application issues.
     app.logger.info(
         f"Search: skill='{skill}', location='{location}', experience='{min_experience}' | Results: {len(filtered_results)}"
     )
@@ -852,6 +862,7 @@ def view_resume(filename):
 
 @app.route("/retry-pending")
 @login_required
+# Added a retry mechanism to reprocess resumes when the AI API becomes available again, preventing permanent data loss.
 def retry_pending():
 
     jobs = get_pending_retry_jobs()
@@ -893,6 +904,7 @@ def too_many_requests(error):
         "/?error=Too many upload requests. Please wait a minute and try again."
     )
 
+# Added a global exception handler to log unexpected errors for easier debugging and troubleshooting.
 @app.errorhandler(Exception)
 def handle_exception(error):
 
